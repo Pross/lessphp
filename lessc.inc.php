@@ -38,7 +38,7 @@
  * handling things like indentation.
  */
 class lessc {
-    static public $VERSION = "v0.5.0";
+    static public $VERSION = "v0.7.1";
 
     static public $TRUE = array("keyword", "true");
     static public $FALSE = array("keyword", "false");
@@ -62,6 +62,10 @@ class lessc {
     // so we know how to create error messages
     protected $sourceParser = null;
     protected $sourceLoc = null;
+    protected $parser;
+    protected $env;
+    protected $scope;
+    protected $formatter;
 
     static protected $nextImportId = 0; // uniquely identify imports
 
@@ -662,7 +666,7 @@ class lessc {
 
         // check for a rest
         $last = end($args);
-        if ($last[0] == "rest") {
+        if ($last && $last[0] == "rest") {
             $rest = array_slice($orderedValues, count($args) - 1);
             $this->set($last[1], $this->reduce(array("list", " ", $rest)));
         }
@@ -746,7 +750,7 @@ class lessc {
                     if ($suffix !== null &&
                         $subProp[0] == "assign" &&
                         is_string($subProp[1]) &&
-                        $subProp[1]{0} != $this->vPrefix
+                        $subProp[1][0] != $this->vPrefix
                     ) {
                         $subProp[2] = array(
                             'list', ' ',
@@ -1363,7 +1367,7 @@ class lessc {
                     $name = $name . ": ";
                 }
 
-                $this->throwError("${name}expecting $expectedArgs arguments, got $numValues");
+                $this->throwError("$name expecting $expectedArgs arguments, got $numValues");
             }
 
             return $values;
@@ -1669,7 +1673,7 @@ class lessc {
                 $width = strlen($colorStr) == 3 ? 16 : 256;
 
                 for ($i = 3; $i > 0; $i--) { // 3 2 1
-                    $t = $num % $width;
+                    $t = intval($num) % $width;
                     $num /= $width;
 
                     $c[$i] = $t * (256/$width) + $t * floor(16/$width);
@@ -1745,7 +1749,7 @@ class lessc {
         }
 
         // type based operators
-        $fname = "op_${ltype}_${rtype}";
+        $fname = "op_$ltype_$rtype";
         if (is_callable(array($this, $fname))) {
             $out = $this->$fname($op, $left, $right);
             if (!is_null($out)) return $out;
@@ -1963,7 +1967,7 @@ class lessc {
         $this->pushEnv();
         $parser = new lessc_parser($this, __METHOD__);
         foreach ($args as $name => $strValue) {
-            if ($name{0} !== '@') {
+            if ($name[0] !== '@') {
                 $name = '@' . $name;
             }
             $parser->count = 0;
@@ -2422,6 +2426,19 @@ class lessc_parser {
      */
     protected $inParens = false;
 
+    protected $eatWhiteDefault;
+    protected $lessc;
+    protected $sourceName;
+    public    $writeComments;
+    protected $parser;
+    public $count;
+    protected $line;
+    protected $env;
+    public $buffer;
+    protected $seenComments;
+    protected $inExp;
+    protected $scope;
+
     // caches preg escaped literals
     static protected $literalCache = array();
 
@@ -2624,7 +2641,7 @@ class lessc_parser {
                 $hidden = true;
                 if (!isset($block->args)) {
                     foreach ($block->tags as $tag) {
-                        if (!is_string($tag) || $tag{0} != $this->lessc->mPrefix) {
+                        if (!is_string($tag) || $tag[0] != $this->lessc->mPrefix) {
                             $hidden = false;
                             break;
                         }
@@ -2678,7 +2695,7 @@ class lessc_parser {
     protected function fixTags($tags) {
         // move @ tags out of variable namespace
         foreach ($tags as &$tag) {
-            if ($tag{0} == $this->lessc->vPrefix)
+            if ($tag[0] == $this->lessc->vPrefix)
                 $tag[0] = $this->lessc->mPrefix;
         }
         return $tags;
@@ -3605,7 +3622,7 @@ class lessc_parser {
         if ($eatWhitespace === null) $eatWhitespace = $this->eatWhiteDefault;
 
         $r = '/'.$regex.($eatWhitespace && !$this->writeComments ? '\s*' : '').'/Ais';
-        if (preg_match($r, $this->buffer, $out, null, $this->count)) {
+        if (preg_match($r, $this->buffer, $out, 0, $this->count)) {
             $this->count += strlen($out[0]);
             if ($eatWhitespace && $this->writeComments) $this->whitespace();
             return true;
@@ -3617,7 +3634,7 @@ class lessc_parser {
     protected function whitespace() {
         if ($this->writeComments) {
             $gotWhite = false;
-            while (preg_match(self::$whitePattern, $this->buffer, $m, null, $this->count)) {
+            while (preg_match(self::$whitePattern, $this->buffer, $m, 0, $this->count)) {
                 if (isset($m[1]) && empty($this->seenComments[$this->count])) {
                     $this->append(array("comment", $m[1]));
                     $this->seenComments[$this->count] = true;
@@ -3636,7 +3653,7 @@ class lessc_parser {
     protected function peek($regex, &$out = null, $from=null) {
         if (is_null($from)) $from = $this->count;
         $r = '/'.$regex.'/Ais';
-        $result = preg_match($r, $this->buffer, $out, null, $from);
+        $result = preg_match($r, $this->buffer, $out, 0, $from);
 
         return $result;
     }
@@ -3877,4 +3894,5 @@ class lessc_formatter_lessjs extends lessc_formatter_classic {
     public $breakSelectors = true;
     public $assignSeparator = ": ";
     public $selectorSeparator = ",";
+    public $indentLevel;
 }
